@@ -1,13 +1,17 @@
 {-# OPTIONS -Wall #-}
 module Main where
 
-import Raylib.Core (clearBackground, getRenderWidth, getRenderHeight)
+import Raylib.Core (clearBackground, getRenderWidth, getRenderHeight, initWindow, windowShouldClose, beginDrawing, endDrawing, getFrameTime, getKeyPressed)
 import Raylib.Core.Text (drawText)
 import Raylib.Util (drawing, whileWindowOpen0, withWindow)
-import Raylib.Util.Colors (lightGray, rayWhite, black)
+import Raylib.Util.Colors (red, lightGray, darkGray)
 import Raylib.Core.Shapes (drawCircle, drawRectangle)
+import Raylib.Types (KeyboardKey (KeyW))
 
 import System.Random (randomRIO)
+import Data.List
+
+data GridState = GridState (Int, Int) [Int] [Int]
 
 --gridSize as width height
 gridSize :: (Int, Int)
@@ -23,37 +27,89 @@ randomList maxValue n = do
   rs <- randomList maxValue (n-1)
   return (r:rs)
 
-renderGrid :: (Int, Int) -> [Int] -> [Int] -> IO ()
-renderGrid cellSize [] _ = return ()
-renderGrid cellSize _ [] = return ()
-renderGrid cellSize (x:xs) (y:ys) = do
-  drawRectangle (x * (fst cellSize)) (y * (snd cellSize)) (fst cellSize) (snd cellSize) black
-  renderGrid cellSize xs ys
+renderGrid :: GridState -> IO ()
+renderGrid (GridState cellSize _ []) = return ()
+renderGrid (GridState cellSize [] _) = return ()
+renderGrid (GridState cellSize (x:xs) (y:ys)) = do
+  screenWidth <- getRenderWidth :: IO Int
+  screenHeight <- getRenderHeight :: IO Int
+  let cellSizeUnscaled = (screenWidth `div` (fst gridSize), screenHeight `div` (snd gridSize))
 
+  drawRectangle (x * (fst cellSizeUnscaled)) (y * (snd cellSizeUnscaled)) (fst cellSize) (snd cellSize) lightGray 
+  renderGrid (GridState cellSize xs ys)
+
+-- Game Of Life Logic
+neighbours :: (Int, Int) -> [(Int, Int)] -> Int -> Int
+neighbours (x,y) [] count = count
+neighbours (x,y) ((s,t):lst) count =  do
+  if (x == s && y == t) then neighbours (x,y) lst (count+1) else neighbours (x,y) lst count
+
+survives :: (Int, Int) -> [Int] -> [Int] -> Bool
+survives _ [] _ = error "no xs"
+survives _ _ [] = error "no ys"
+survives (x,y) xs ys = do
+  let xChecks = [-1,1]
+  let yChecks = [-1,1]
+  let cartesian =  [(s+x,t+y) | s <- xChecks, t <- yChecks]
+  let adjacent = neighbours (x,y) cartesian 0
+  if (adjacent < 2 || adjacent > 3 ) then False else True
+
+resurrects :: (Int, Int) -> [Int] -> [Int] -> Bool
+resurrects _ [] _ = error "no xs"
+ressurects _ _ [] = error "no ys"
+ressurects (x,y) xs ys = do
+  let xChecks = [-1,1]
+  let yChecks = [-1,1]
+  let cartesian =  [(s+x,t+y) | s <- xChecks, t <- yChecks]
+  let adjacent = neighbours (x,y) cartesian 0
+  if (adjacent == 3) then True else False
+
+--gameLogic :: GridState -> GridState
+--gameLogic (GridState cellSize xs ys) = do
+--  let gridCoords = [(s,t) | s <- [0..(fst gridSize)], t<- [0..(snd gridSize)]]
+--  let survivors = filter (survives gridCoords xs ys) gridCoords
+--  let resurrectors = filter (map resurrects gridCoords xs ys) gridCoords
+--  let newGrid = union survivors resurrectors
+--  (GridState cellSize (map fst newGrid) (map snd newGrid))
+--
+--tupleMap f ((x,y):tups) l1 l2 = 
+-- map (\x -> f x arg1 arg2) tuples
+
+gameLoop :: GridState -> (Int,Int) -> Float -> IO ()
+gameLoop gridState playerPosition lastFrameTime = do
+  close <- windowShouldClose :: IO Bool 
+  t <- getFrameTime :: IO Float
+  if close then return ()
+  else do
+    beginDrawing
+    screenWidth <- getRenderWidth :: IO Int
+    screenHeight <- getRenderHeight :: IO Int
+    
+    let cellSize = (screenWidth `div` (fst gridSize), screenHeight `div` (snd gridSize))
+    
+    clearBackground darkGray
+    
+    let gridCoords = [(s,t) | s <- [0..numCells], t<- [0..numCells]]
+    let grid = (GridState ((fst cellSize) - (fst cellSize `div` 10), (snd cellSize) - (snd cellSize `div` 10)) (map fst gridCoords) (map snd gridCoords))
+    renderGrid grid
+
+    let cellSizeUnscaled = (screenWidth `div` (fst gridSize), screenHeight `div` (snd gridSize))
+    drawCircle ((fst playerPosition) * (fst cellSizeUnscaled)) ((snd playerPosition) * (snd cellSizeUnscaled)) 10 red
+    endDrawing
+
+    -- deltatime type beat >>= Mutate and collisions
+    playerMove <- getKeyPressed
+    --if playerMove == KeyW then putStrLn "W" else putStrLn ""
+
+    gameLoop gridState playerPosition t 
 
 main :: IO ()
 main = do
   ys <- randomList (10) numCells :: IO [Int]
   xs <- randomList (10) numCells :: IO [Int]
-  withWindow
-    600
-    450
-    "The Scrapyard"
-    60
-    ( \_ -> do
+  let initialState = (GridState (10,10) xs ys)
+  let playerPosition = (numCells `div` 4, numCells `div` 4)
 
-        whileWindowOpen0
-          ( drawing
-              ( do
-		  screenWidth <- getRenderWidth :: IO Int
-		  screenHeight <- getRenderHeight :: IO Int
+  initWindow 600 450 "The Scrapyard"
 
-	          let cellSize = (screenWidth `div` (fst gridSize), screenHeight `div` (snd gridSize))
-
-                  clearBackground rayWhite
-
-		  renderGrid cellSize xs ys
-              )
-          )
-    )
-
+  gameLoop initialState playerPosition 0 
