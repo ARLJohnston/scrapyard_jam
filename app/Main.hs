@@ -3,9 +3,10 @@ module Main where
 
 import Raylib.Core (clearBackground, getRenderWidth, getRenderHeight, initWindow, windowShouldClose, beginDrawing, endDrawing, getFrameTime, getKeyPressed)
 import Raylib.Core.Text (drawText, measureText)
-import Raylib.Util.Colors (red, lightGray, darkGray, black)
+import Raylib.Util.Colors (red, lightGray, darkGray, black, rayWhite, gray)
+import Raylib.Util (whileWindowOpen0)
 import Raylib.Core.Shapes (drawCircle, drawRectangle)
-import Raylib.Types (KeyboardKey (KeyW, KeyA, KeyS, KeyD, KeyUp, KeyDown, KeyLeft, KeyRight, KeyNull), Color)
+import Raylib.Types (KeyboardKey (KeyW, KeyA, KeyS, KeyD, KeyUp, KeyDown, KeyLeft, KeyRight, KeyNull, KeyK, KeyH, KeyJ, KeyL), Color)
 
 import System.Random (randomRIO)
 import GHC.Float (int2Float)
@@ -14,11 +15,12 @@ data GridState = GridState (Int, Int) [Int] [Int]
 
 --gridSize as width height
 gridSize :: (Int, Int)
-gridSize = (10, 10)
+gridSize = (20, 20)
 
 initialNumPoints :: Int
-initialNumPoints = 50
+initialNumPoints = 150
 
+-- Initialisation
 randomSpawn :: Int -> [Int] -> [Int] -> IO((Int,Int))
 randomSpawn maxValue xs ys = do
   x <- randomRIO (0, maxValue-1)
@@ -34,6 +36,7 @@ randomList maxValue n = do
   rs <- randomList maxValue (n-1)
   return (r:rs)
 
+-- Rendering
 renderPlayer :: (Int,Int) -> IO ()
 renderPlayer (x,y) = do
   screenWidth <- getRenderWidth :: IO Int
@@ -74,6 +77,7 @@ pointExists _ _ _ [] = False
 pointExists x y (s:xs) (t:ys) = do
   if (x == s && y == t) then True else pointExists x y xs ys
 
+-- Logic for Gameplay
 gameLogic :: GridState -> GridState
 gameLogic (GridState cellSize xs ys) = do
   let gridCoords = [(s,t) | s <- [0..(fst gridSize)], t<- [0..(snd gridSize)]]
@@ -82,10 +86,10 @@ gameLogic (GridState cellSize xs ys) = do
 
 playerMove :: (Int,Int) -> KeyboardKey -> (Int,Int)
 playerMove (x,y) key 
-  | (key == KeyW || key == KeyUp) && (y > 0) = (x,(y-1))
-  | (key == KeyA || key == KeyLeft) && (x > 0) = ((x-1),y)
-  | (key == KeyS || key == KeyDown) && (y < (snd gridSize)-1) = (x,(y+1))
-  | (key == KeyD || key == KeyRight) && (x < (fst gridSize)-1) = ((x+1),y)
+  | (key == KeyW || key == KeyK ||key == KeyUp) && (y > 0) = (x,(y-1))
+  | (key == KeyA || key == KeyH ||key == KeyLeft) && (x > 0) = ((x-1),y)
+  | (key == KeyS || key == KeyJ ||key == KeyDown) && (y < (snd gridSize)-1) = (x,(y+1))
+  | (key == KeyD || key == KeyL ||key == KeyRight) && (x < (fst gridSize)-1) = ((x+1),y)
   | otherwise = (x,y)
 
 scaleGrid :: GridState -> (Int,Int) -> GridState
@@ -96,12 +100,12 @@ collision (GridState _ [] _) (_,_) = False
 collision (GridState _ _ []) (_,_) = False
 collision (GridState c (x:xs) (y:ys)) (xPlayer,yPlayer) = if (x == xPlayer && y == yPlayer) then True else collision (GridState c xs ys) (xPlayer, yPlayer)
 
-gameLoop :: GridState -> (Int,Int) -> Float -> Bool -> IO ()
-gameLoop gridState playerPosition lastFrameTime dead = do
+gameLoop :: GridState -> (Int,Int) -> Float -> Float -> Bool -> IO (Float)
+gameLoop gridState playerPosition lastFrameTime score dead = do
   close <- windowShouldClose :: IO Bool 
   t <- getFrameTime :: IO Float
   let time = lastFrameTime + t
-  if (close || dead) then return ()
+  if (close || dead) then return (score)
   else do
     beginDrawing
     screenWidth <- getRenderWidth :: IO Int
@@ -114,10 +118,13 @@ gameLoop gridState playerPosition lastFrameTime dead = do
     let gridCoords = [(xCoord,yCoord) | xCoord <- [0..(fst gridSize)], yCoord<- [0..(snd gridSize)]]
     let newGridSize = ((fst cellSize) - (fst cellSize `div` 10), (snd cellSize) - (snd cellSize `div` 10))
     let grid = (GridState newGridSize (map fst gridCoords) (map snd gridCoords))
+    let indicator = gameLogic gridState
     renderGrid grid lightGray
     renderGrid gridState black
+    renderGrid indicator gray
 
     renderPlayer playerPosition
+    drawText ("Score:" ++ (show (floor score :: Int)) ) 0 0 20 rayWhite
     endDrawing
 
     movement <- getKeyPressed
@@ -126,11 +133,16 @@ gameLoop gridState playerPosition lastFrameTime dead = do
         then (gameLogic gridState)
         else gridState
 
+    --let newScore = if (time > 1)
+    --    then (score+100)
+    --    else score
+
     let newTime = if (time > 1)
         then (time-1)
         else time
+    let newScore = (score + (time / 100))
 
-    gameLoop (scaleGrid (newState) newGridSize) (playerMove playerPosition movement) newTime (collision gridState playerPosition)
+    gameLoop (scaleGrid (newState) newGridSize) (playerMove playerPosition movement) newTime newScore (collision gridState playerPosition)
 
 titleScreen :: Bool -> IO ()
 titleScreen adv = do
@@ -153,8 +165,8 @@ titleScreen adv = do
     titleScreen (key /= KeyNull) 
 
 
-gameOverScreen :: Bool -> IO ()
-gameOverScreen adv = do
+gameOverScreen :: Float -> Bool -> IO ()
+gameOverScreen score adv = do
   close <- windowShouldClose :: IO Bool
   if (close || adv) then return ()
   else do
@@ -166,10 +178,12 @@ gameOverScreen adv = do
     screenWidth <- getRenderWidth :: IO Int
     screenHeight <- getRenderHeight :: IO Int
     width <- measureText "YOU DIED" 80 :: IO Int
+    subWidth <- measureText ("Score:" ++ (show (floor score :: Int)) ) 20 :: IO Int
     drawText "YOU DIED" (screenWidth `div` 2 - (width `div` 2)) ((screenHeight `div` 2) - 20) 80 red
+    drawText ("Score:" ++ (show (floor score :: Int)) ) (screenWidth `div` 2 - (subWidth `div` 2)) ((screenHeight `div` 2) + 120) 20 rayWhite
     endDrawing
 
-    gameOverScreen (key /= KeyNull) 
+    gameOverScreen score (key /= KeyNull) 
 
 main :: IO ()
 main = do
@@ -185,6 +199,13 @@ main = do
 
   _ <- initWindow 600 450 "Conway's Game of Life & Death"
 
-  titleScreen False
-  gameLoop initialState playerPosition 0 False
-  gameOverScreen False
+  whileWindowOpen0
+    ( do
+    close <- windowShouldClose :: IO Bool
+    if close 
+        then return ()
+        else do
+          titleScreen False
+          score <- (gameLoop initialState playerPosition 0 0 False) :: IO Float
+          gameOverScreen score False
+    )
