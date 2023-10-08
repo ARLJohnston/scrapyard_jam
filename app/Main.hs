@@ -3,13 +3,11 @@ module Main where
 
 import Raylib.Core (clearBackground, getRenderWidth, getRenderHeight, initWindow, windowShouldClose, beginDrawing, endDrawing, getFrameTime, getKeyPressed)
 import Raylib.Core.Text (drawText, measureText)
-import Raylib.Util (drawing, whileWindowOpen0, withWindow)
 import Raylib.Util.Colors (red, lightGray, darkGray, black)
 import Raylib.Core.Shapes (drawCircle, drawRectangle)
 import Raylib.Types (KeyboardKey (KeyW, KeyA, KeyS, KeyD, KeyUp, KeyDown, KeyLeft, KeyRight, KeyNull), Color)
 
 import System.Random (randomRIO)
-import Data.List
 import GHC.Float (int2Float)
 
 data GridState = GridState (Int, Int) [Int] [Int]
@@ -19,12 +17,20 @@ gridSize :: (Int, Int)
 gridSize = (10, 10)
 
 initialNumPoints :: Int
-initialNumPoints = 25
+initialNumPoints = 50
+
+randomSpawn :: Int -> [Int] -> [Int] -> IO((Int,Int))
+randomSpawn maxValue xs ys = do
+  x <- randomRIO (0, maxValue-1)
+  y <- randomRIO (0, maxValue-1)
+  if pointExists x y xs ys
+      then randomSpawn maxValue xs ys
+      else return (x,y)
 
 randomList :: Int -> Int -> IO([Int])
-randomList maxValue 0 = return []
+randomList _ 0 = return []
 randomList maxValue n = do
-  r <- randomRIO (1, maxValue)
+  r <- randomRIO (0, maxValue-1)
   rs <- randomList maxValue (n-1)
   return (r:rs)
 
@@ -37,8 +43,8 @@ renderPlayer (x,y) = do
   drawCircle (fst coords) (snd coords) ((int2Float(snd cellSizeUnscaled)) * 0.4) red
 
 renderGrid :: GridState -> Color -> IO ()
-renderGrid (GridState cellSize _ []) _ = return ()
-renderGrid (GridState cellSize [] _) _ = return ()
+renderGrid (GridState _ _ []) _ = return ()
+renderGrid (GridState _ [] _) _ = return ()
 renderGrid (GridState cellSize (x:xs) (y:ys)) color = do
   screenWidth <- getRenderWidth :: IO Int
   screenHeight <- getRenderHeight :: IO Int
@@ -83,7 +89,7 @@ playerMove (x,y) key
   | otherwise = (x,y)
 
 scaleGrid :: GridState -> (Int,Int) -> GridState
-scaleGrid (GridState cellSize xs ys) (xScale, yScale) = (GridState (xScale,yScale) xs ys)
+scaleGrid (GridState _ xs ys) (xScale, yScale) = (GridState (xScale,yScale) xs ys)
 
 collision :: GridState -> (Int,Int) -> Bool
 collision (GridState _ [] _) (_,_) = False
@@ -105,9 +111,9 @@ gameLoop gridState playerPosition lastFrameTime dead = do
     
     clearBackground darkGray
     
-    let gridCoords = [(s,t) | s <- [0..(fst gridSize)], t<- [0..(snd gridSize)]]
-    let gridSize = ((fst cellSize) - (fst cellSize `div` 10), (snd cellSize) - (snd cellSize `div` 10))
-    let grid = (GridState gridSize (map fst gridCoords) (map snd gridCoords))
+    let gridCoords = [(xCoord,yCoord) | xCoord <- [0..(fst gridSize)], yCoord<- [0..(snd gridSize)]]
+    let newGridSize = ((fst cellSize) - (fst cellSize `div` 10), (snd cellSize) - (snd cellSize `div` 10))
+    let grid = (GridState newGridSize (map fst gridCoords) (map snd gridCoords))
     renderGrid grid lightGray
     renderGrid gridState black
 
@@ -118,13 +124,13 @@ gameLoop gridState playerPosition lastFrameTime dead = do
 
     let newState = if (time > 1)
         then (gameLogic gridState)
-	else gridState
+        else gridState
 
     let newTime = if (time > 1)
         then (time-1)
-	else time
+        else time
 
-    gameLoop (scaleGrid (newState) gridSize) (playerMove playerPosition movement) newTime (collision gridState playerPosition)
+    gameLoop (scaleGrid (newState) newGridSize) (playerMove playerPosition movement) newTime (collision gridState playerPosition)
 
 titleScreen :: Bool -> IO ()
 titleScreen adv = do
@@ -138,9 +144,9 @@ titleScreen adv = do
     screenWidth <- getRenderWidth :: IO Int
     screenHeight <- getRenderHeight :: IO Int
     clearBackground lightGray
-    titleWidth <- measureText "Title Screen" 40 :: IO Int
+    titleWidth <- measureText "Conway's Game of Life & Death" 35 :: IO Int
     subWidth <- measureText "Press the 'any' key" 18 :: IO Int
-    drawText "Title Screen" (screenWidth `div` 2 - (titleWidth `div` 2)) ((screenHeight `div` 2) - 20) 40 black
+    drawText "Conway's Game of Life & Death" (screenWidth `div` 2 - (titleWidth `div` 2)) ((screenHeight `div` 2) - 20) 35 black
     drawText "Press the 'any' key" (screenWidth `div` 2 - (subWidth `div` 2)) ((screenHeight `div` 2) + 40) 18 darkGray 
     endDrawing
 
@@ -175,11 +181,10 @@ main = do
     
   let cellSize = (screenWidth `div` (fst gridSize), screenHeight `div` (snd gridSize))
   let initialState = (GridState ((fst cellSize) - (fst cellSize `div` 10), (snd cellSize) - (snd cellSize `div` 10)) xs ys)
-  let playerPosition = (0,0)
+  playerPosition <- randomSpawn (fst gridSize) xs ys :: IO (Int,Int)
 
-  initWindow 600 450 "The Scrapyard"
+  _ <- initWindow 600 450 "Conway's Game of Life & Death"
 
   titleScreen False
   gameLoop initialState playerPosition 0 False
-  close <- windowShouldClose :: IO Bool
   gameOverScreen False
